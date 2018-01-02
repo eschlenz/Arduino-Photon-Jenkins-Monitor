@@ -1,0 +1,4 @@
+pla_base.gcode filter=lfs diff=lfs merge=lfs -text
+pla_base_top.gcode filter=lfs diff=lfs merge=lfs -text
+pla_base_top_lcd_insert.gcode filter=lfs diff=lfs merge=lfs -text
+pla_led_back_ring.gcode filter=lfs diff=lfs merge=lfs -text
