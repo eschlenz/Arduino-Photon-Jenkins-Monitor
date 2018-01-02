@@ -72,8 +72,10 @@ void Schlenz_SSD1306_Jenkins::checkForMessage() {
     boolean newLine = (received == '\n');
 
     if (_ignoring && !newLine) {
+      // Keep reading through the serial data...
       continue;
     } else if (_ignoring && newLine) {
+      // Hit a new line, we can stop ignoring data.
       _ignoring = false;
     } else if (full || newLine) {
       if (_serialMsgIndex > 23) {
@@ -104,6 +106,7 @@ void Schlenz_SSD1306_Jenkins::processMessage(char *msg) {
   _oled.display();
 
   if (strstr(msg, _progmemBuffer) != NULL) {
+    // We received an "INIT" from the Particle Photon.
     // Particle device connected to our Arduino.
     readProgmemWord(_progmemBuffer, WORD_TX_RX_CONNECTED);
     _oled.println(_progmemBuffer);
@@ -146,3 +149,4 @@ void Schlenz_SSD1306_Jenkins::getStatusCount(char *status, const char *msg, int 
 void Schlenz_SSD1306_Jenkins::readProgmemWord(char *word, int index) {
   strcpy_P(word, (char*) pgm_read_word(&(STRING_TABLE[index])));
 }
+

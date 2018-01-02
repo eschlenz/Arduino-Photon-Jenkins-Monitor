@@ -139,3 +139,4 @@ int Schlenz_Neopixel_Animations::getPixelFrom(int from, int distance) {
   
   return pixel;
 }
+
