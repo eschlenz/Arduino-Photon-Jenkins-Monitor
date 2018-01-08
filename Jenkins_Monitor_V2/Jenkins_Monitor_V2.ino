@@ -16,6 +16,7 @@
 
 // Forward references to functions that will be used for the SoftTimer
 void checkForMessage(Task* me);
+void animateWaitingForStatus(Task* me);
 void animateOverallStatus(Task* me);
 void showStatusDistribution(Task* me);
 void toggleDisplayMode(Task* me);
@@ -25,10 +26,12 @@ Schlenz_SSD1306_Jenkins _oled(OLED_RESET_PIN, I2C_ADDRESS);  // Object for handl
 
 // Task instances for the SoftTimer
 Task checkForMessageTask(0, checkForMessage);
-Task animateTask(ANIM_DELAY, animateOverallStatus);
+Task animateWaitingForStatusTask(ANIM_DELAY, animateWaitingForStatus);
+Task animateOverallStatusTask(ANIM_DELAY, animateOverallStatus);
 Task showStatusDistributionTask(STATUS_DIST_DELAY, showStatusDistribution);
 Task toggleDisplayModeTask(TOGGLE_DISPLAY_MODE_DELAY, toggleDisplayMode);
 
+boolean _statusReceived = false; // If true, at least one status update has been received.
 boolean _allowAnimation = false; // If true, it's safe to step through animations. Otherwise, Serial data is being read which takes priority.
 boolean _reset = true; // Whether the Neopixels should be reset before the next animation step
 boolean _showingStatusDist = false; // True if we are in display mode B, otherwise display mode A
@@ -54,6 +57,9 @@ void setup() {
 
   // Register our SoftTimer tasks
   SoftTimer.add(&checkForMessageTask);
+  SoftTimer.add(&animateWaitingForStatusTask);
+  SoftTimer.add(&showStatusDistributionTask);  
+  SoftTimer.add(&animateOverallStatusTask);
   SoftTimer.add(&toggleDisplayModeTask);
 }
 
@@ -62,9 +68,28 @@ void checkForMessage(Task* me) {
   _oled.checkForMessage();  
 }
 
+// Called by SoftTimer. Execute the next step in the "waiting for status" animation.
+void animateWaitingForStatus(Task* me) {
+  if (!_allowAnimation) {
+    return;
+  }
+
+  checkReset();
+
+  _anims.stepCometAnimation(0, 50, 50, 50);
+}
+
 // Called by SoftTimer. Execute the next step in the display mode A animation.
 void animateOverallStatus(Task* me) {
   if (!_allowAnimation) {
+    return;
+  }
+
+  if (!_statusReceived) {
+    return;
+  }
+
+  if (_showingStatusDist) {
     return;
   }
 
@@ -88,10 +113,21 @@ void showStatusDistribution(Task *me) {
     return;
   }
 
+  if (!_statusReceived) {
+    return;
+  }
+
+  if (!_showingStatusDist) {
+    return;
+  }
+
+  boolean allSuccess = ((_success > 0) && (_failure <= 0));
+  boolean allFail = ((_success <= 0) && (_failure > 0));
   float total = (float) (_success + _failure + _unstable + _aborted + _notBuilt + _unknown);
 
-  if (total <= 0) {
+  if ((total <= 0) || allSuccess || allFail) {
     // No jobs, flip back to display mode A.
+    _lastDisplayModeSwitch = 0;
     toggleDisplayMode(NULL);
     return;
   }
@@ -169,21 +205,17 @@ void toggleDisplayMode(Task *me) {
   _showingStatusDist = !_showingStatusDist;
   _reset = true;
   _lastDisplayModeSwitch = micros();
-  
-  if (_showingStatusDist) {
-    SoftTimer.add(&showStatusDistributionTask);  
-    SoftTimer.remove(&animateTask);
-  } else {
-    SoftTimer.add(&animateTask);
-    SoftTimer.remove(&showStatusDistributionTask);  
-  }
 }
 
 void checkReset() {
   if (_reset) {
-    _reset = false;
-    _anims.reset();
+    reset();
   }
+}
+
+void reset() {
+  _reset = false;
+  _anims.reset();
 }
 
 // Called by Jenkins/OLED helper class. Whether the helper is busy reading serial data.
@@ -193,6 +225,12 @@ void onBusy(boolean busy) {
 
 // Called by Jenkins/OLED helper class. Called when new status data arrives.
 void onStatus(int success, int failure, int unstable, int aborted, int notBuilt, int unknown) {
+  if (!_statusReceived) {
+    reset();
+    _statusReceived = true;
+    SoftTimer.remove(&animateWaitingForStatusTask);
+  }
+  
   _success = success;
   _failure = failure;
   _unstable = unstable;
