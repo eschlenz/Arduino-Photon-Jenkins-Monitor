@@ -35,6 +35,7 @@ boolean _statusReceived = false; // If true, at least one status update has been
 boolean _allowAnimation = false; // If true, it's safe to step through animations. Otherwise, Serial data is being read which takes priority.
 boolean _reset = true; // Whether the Neopixels should be reset before the next animation step
 boolean _showingStatusDist = false; // True if we are in display mode B, otherwise display mode A
+boolean _allowStatusDist = false; // True if there is more than one status type to show. Means display modes will get toggled between each other.
 unsigned long _lastDisplayModeSwitch = 0; // Timestamp for when we last switched the display mode
 int _statusDistStep = 0; // Which step (frame) of the status distribution (display mode B) we are on
 int _success; // Number of successful Jenkins jobs
@@ -82,14 +83,17 @@ void animateWaitingForStatus(Task* me) {
 // Called by SoftTimer. Execute the next step in the display mode A animation.
 void animateOverallStatus(Task* me) {
   if (!_allowAnimation) {
+    // System is busy reading serial data.
     return;
   }
 
   if (!_statusReceived) {
+    // Too early to show anything.
     return;
   }
 
   if (_showingStatusDist) {
+    // Display mode B is active.
     return;
   }
 
@@ -110,22 +114,23 @@ void animateOverallStatus(Task* me) {
 // Called by SoftTimer. Execute the status distribution frame in display mode B.
 void showStatusDistribution(Task *me) {
   if (!_allowAnimation) {
+    // System is busy reading serial data.
     return;
   }
 
   if (!_statusReceived) {
+    // Too early to show anything.
     return;
   }
 
   if (!_showingStatusDist) {
+    // Display mode A is active.
     return;
   }
 
-  boolean allSuccess = ((_success > 0) && (_failure <= 0));
-  boolean allFail = ((_success <= 0) && (_failure > 0));
   float total = (float) (_success + _failure + _unstable + _aborted + _notBuilt + _unknown);
-
-  if ((total <= 0) || allSuccess || allFail) {
+  
+  if ((total <= 0) || isOnlyOneStatusType()) {
     // No jobs, flip back to display mode A.
     _lastDisplayModeSwitch = 0;
     toggleDisplayMode(NULL);
@@ -194,6 +199,11 @@ void showStatusDistribution(Task *me) {
 
 // Called by SoftTimer. Flips between display mode A & B, unless enough time has not passed. 
 void toggleDisplayMode(Task *me) {
+  if (!_allowStatusDist) {
+    // Toggling between display modes is not enabled yet.
+    return;
+  }
+  
   unsigned long duration = (micros() - _lastDisplayModeSwitch);
   
   if ((_showingStatusDist && (duration < TOGGLE_DISPLAY_MODE_DURATION_B)) || 
@@ -218,6 +228,36 @@ void reset() {
   _anims.reset();
 }
 
+boolean isOnlyOneStatusType() {
+  int statusTypes = 0;
+
+  if (_success > 0) {
+    statusTypes++;
+  }
+
+  if (_failure > 0) {
+    statusTypes++;
+  }
+
+  if (_unstable > 0) {
+    statusTypes++;
+  }
+
+  if (_aborted > 0) {
+    statusTypes++;
+  }
+
+  if (_notBuilt > 0) {
+    statusTypes++;
+  }
+
+  if (_unknown > 0) {
+    statusTypes++;
+  }
+
+  return (statusTypes <= 1);
+}
+
 // Called by Jenkins/OLED helper class. Whether the helper is busy reading serial data.
 void onBusy(boolean busy) {
   _allowAnimation = !busy;
@@ -225,10 +265,12 @@ void onBusy(boolean busy) {
 
 // Called by Jenkins/OLED helper class. Called when new status data arrives.
 void onStatus(int success, int failure, int unstable, int aborted, int notBuilt, int unknown) {
+  boolean toggleDisplayModeNow = false;
+  
   if (!_statusReceived) {
-    reset();
     _statusReceived = true;
     SoftTimer.remove(&animateWaitingForStatusTask);
+    toggleDisplayModeNow = true;
   }
   
   _success = success;
@@ -239,7 +281,12 @@ void onStatus(int success, int failure, int unstable, int aborted, int notBuilt,
   _unknown = unknown;
   
   _showingStatusDist = false;
+  _allowStatusDist = !isOnlyOneStatusType();
   _statusDistStep = 0;
   _reset = true;
+
+  if (toggleDisplayModeNow) {
+    toggleDisplayMode(NULL);
+  }
 }
 
